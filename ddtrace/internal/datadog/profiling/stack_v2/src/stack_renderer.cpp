@@ -51,6 +51,7 @@ StackRenderer::render_thread_begin(PyThreadState* tstate,
 
     // Finalize the thread information we have
     ddup_push_threadinfo(sample, static_cast<int64_t>(thread_id), static_cast<int64_t>(native_id), name);
+    std::cout << "render_thread_begin, thread_state.wall_time_ns: " << thread_state.wall_time_ns << std::endl;
     ddup_push_walltime(sample, thread_state.wall_time_ns, 1);
 }
 
@@ -77,7 +78,9 @@ StackRenderer::render_task_begin(std::string_view name)
                              static_cast<int64_t>(thread_state.id),
                              static_cast<int64_t>(thread_state.native_id),
                              thread_state.name);
+        std::cout << "render_task_begin, thread_state.wall_time_ns: " << thread_state.cpu_time_ns << std::endl;
         ddup_push_walltime(sample, thread_state.wall_time_ns, 1);
+        std::cout << "render_task_begin, thread_state.cpu_time_ns: " << thread_state.cpu_time_ns << std::endl;
         ddup_push_cputime(sample, thread_state.cpu_time_ns, 1); // initialized to 0, so possibly a no-op
         ddup_push_monotonic_ns(sample, thread_state.now_time_ns);
     }
@@ -133,6 +136,7 @@ StackRenderer::render_cpu_time(microsecond_t cpu_time_us)
     // TODO - it's absolutely false that thread-level CPU time is task time.  This needs to be normalized
     // to the task level, but for now just keep it because this is how the v1 sampler works
     thread_state.cpu_time_ns = 1000LL * cpu_time_us;
+    std::cout << "render_cpu_time: " << thread_state.cpu_time_ns << std::endl;
     ddup_push_cputime(sample, thread_state.cpu_time_ns, 1);
 }
 

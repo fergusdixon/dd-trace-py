@@ -129,6 +129,7 @@ Datadog::Sample::push_cputime(int64_t cputime, int64_t count)
     // NB all push-type operations return bool for semantic uniformity,
     // even if they can't error.  This should promote generic code.
     if (0U != (type_mask & SampleType::CPU)) {
+        std::cout << "push cputime(" << cputime << ", " << count << ")" << std::endl;
         values[profile_state.val().cpu_time] += cputime * count;
         values[profile_state.val().cpu_count] += count;
         return true;
@@ -141,6 +142,7 @@ bool
 Datadog::Sample::push_walltime(int64_t walltime, int64_t count)
 {
     if (0U != (type_mask & SampleType::Wall)) {
+        std::cout << "push walltime(" << walltime << ", " << count << ")" << std::endl;
         values[profile_state.val().wall_time] += walltime * count;
         values[profile_state.val().wall_count] += count;
         return true;

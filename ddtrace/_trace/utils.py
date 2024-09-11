@@ -3,6 +3,9 @@ from typing import Callable
 from typing import Dict
 from typing import Optional
 import json
+from jsonpath_ng import parse
+import copy
+
 
 from decimal import Decimal
 from ddtrace import Span
@@ -16,9 +19,7 @@ from ddtrace.ext import http
 from ddtrace.internal.constants import COMPONENT
 from ddtrace.internal.utils.formats import deep_getattr
 from ddtrace.propagation.http import HTTPPropagator
-
-redactable_keys = ["authorization", "x-authorization", "password", "token"]
-max_depth = 10
+from ddtrace._trace.utils_botocore import AWSPayloadTagging
 
 def set_botocore_patched_api_call_span_tags(span: Span, instance, args, params, endpoint_name, operation):
     span.set_tag_str(COMPONENT, config.botocore.integration_name)
@@ -36,8 +37,9 @@ def set_botocore_patched_api_call_span_tags(span: Span, instance, args, params, 
         if params and not config.botocore["tag_no_params"]:
             aws._add_api_param_span_tags(span, endpoint_name, params)
 
-        if params:
-            expand_payload_as_tags(span, params, "aws.request")
+        if params and config.botocore["payload_tagging_request"] is not None and config.botocore["payload_tagging_request"].replace(" ", "") != "":
+            payload_tagger = AWSPayloadTagging() # TODO where do I put this?
+            payload_tagger.expand_payload_as_tags(span, params, "aws.request.body")
 
     else:
         span.resource = endpoint_name
@@ -62,7 +64,9 @@ def set_botocore_response_metadata_tags(
         return
     response_meta = result["ResponseMetadata"]
 
-    expand_payload_as_tags(span, result, "aws.response")
+    if config.botocore["payload_tagging_response"] is not None and config.botocore["payload_tagging_response"].replace(" ", "") != "":
+        payload_tagger = AWSPayloadTagging() # TODO where do I put this?
+        payload_tagger.expand_payload_as_tags(span, response_meta, "aws.response.body")
 
     if "HTTPStatusCode" in response_meta:
         status_code = response_meta["HTTPStatusCode"]
@@ -90,84 +94,3 @@ def extract_DD_context_from_messages(messages, extract_from_message: Callable):
                 ctx = child_of
     return ctx
 
-def tag_object(span, key, obj, depth=0):
-    if obj is None:
-        return span.set_tag(key, obj)
-    if depth >= max_depth:
-        return span.set_tag(key, _redact_val(key, str(obj)[0:5000]))
-    depth += 1
-    if _should_try_string(obj):
-        parsed = None
-        try:
-            parsed = json.loads(obj)
-            return tag_object(span, key, parsed, depth)
-        except ValueError:
-            redacted = _redact_val(key, obj[0:5000])
-            return span.set_tag(key, redacted)
-    if isinstance(obj, int) or isinstance(obj, float) or isinstance(obj, Decimal):
-        return span.set_tag(key, str(obj))
-    if isinstance(obj, list):
-        for k, v in enumerate(obj):
-            formatted_key = f"{key}.{k}"
-            tag_object(span, formatted_key, v, depth)
-        return
-    if hasattr(obj, "items"):
-        for k, v in obj.items():
-            formatted_key = f"{key}.{k}"
-            tag_object(span, formatted_key, v, depth)
-        return
-    if hasattr(obj, "to_dict"):
-        for k, v in obj.to_dict().items():
-            formatted_key = f"{key}.{k}"
-            tag_object(span, formatted_key, v, depth)
-        return
-    try:
-        value_as_str = str(obj)
-    except Exception:
-        value_as_str = "UNKNOWN"
-    return span.set_tag(key, value_as_str)
-
-def expand_payload_as_tags(span: Span, result: Dict[str, Any], key):
-    # TODO add configuration if this is enabled or not DD_TRACE_CLOUD_REQUEST_PAYLOAD_TAGGING
-    # TODO add configuration if this is enabled or not DD_TRACE_CLOUD_RESPONSE_PAYLOAD_TAGGING
-    #   supported values "all" OR a comma-separated list of JSONPath queries defining payload paths that will be replaced with "redacted"
-    # TODO add max depth configuration DD_TRACE_CLOUD_PAYLOAD_TAGGING_MAX_DEPTH (default 10)
-
-    if not result:
-        return
-    
-    # handle response messages list
-    if result.get("Messages"):
-        message = result["Messages"]
-        tag_object(span, key, message) 
-        return
-    
-    # handle params request list
-    for key2, value in result.items():
-        tag_object(span, key, value)
-
-def payload_expansion(span: Span, message, key, depth=0):
-    if message is None:
-        return
-    if depth >= max_depth:
-        return
-    else:
-        depth += 1
-    
-
-def _should_try_string(obj):
-    try:
-        if isinstance(obj, str) or isinstance(obj, unicode):
-            return True
-    except NameError:
-        if isinstance(obj, bytes):
-            return True
-
-    return False
-
-
-def _redact_val(k, v):
-    split_key = k.split(".").pop() or k
-    if split_key in redactable_keys:
-        return "redacted"
-    return v

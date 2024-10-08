@@ -71,7 +71,7 @@ class TestTraceAcceptedByAgent:
         ],
     )
     def test_trace_with_links_accepted_by_agent(self, span_links_kwargs):
-        """Links should not break things."""
+        """The agent does not return an error code when accepting a trace payload containing span links."""
         tracer = Tracer()
         with mock.patch("ddtrace.internal.writer.writer.log") as log:
             with tracer.trace("root", service="test_encoding", resource="test_resource") as root:
